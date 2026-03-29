@@ -1,3 +1,22 @@
+## Testing PawPal+
+
+To run the automated test suite for PawPal+, use:
+
+```bash
+python -m pytest
+```
+
+This will discover and run all tests in the `tests/` directory. The test suite covers:
+- Pet and owner creation, validation, and updates
+- Task creation, validation, priority/type logic, and completion
+- Schedule building, sorting, and filtering
+- Recurring task logic (daily/weekly, auto-creation, end dates)
+- Conflict detection (overlapping tasks)
+- Edge cases (invalid input, empty states, etc.)
+
+**Confidence Level:** ★★★★★ (5/5)
+
+All core scheduling, validation, and recurring logic is covered by automated tests. The system is highly reliable for the supported features.
 # PawPal+ (Module 2 Project)
 
 You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.

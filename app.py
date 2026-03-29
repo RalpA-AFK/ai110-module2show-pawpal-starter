@@ -30,7 +30,7 @@ if owner_contact and owner_contact != st.session_state.owner.contact:
 
 with st.expander("Add pet", expanded=False):
     pet_name = st.text_input("Pet name", value="Mochi")
-    species = st.selectbox("Species", ["dog", "cat", "other"])
+    species = st.selectbox("Species", ["dog", "cat", "other"], key="species_select")
     breed = st.text_input("Breed", value="")
     food_type = st.text_input("Food type", value="")
 
@@ -50,8 +50,8 @@ else:
 
 with st.expander("Pet preferred task times", expanded=False):
     if st.session_state.owner.pets:
-        pet_select_for_times = st.selectbox("Choose pet", [p.name for p in st.session_state.owner.pets])
-        task_type_time = st.selectbox("Task type", ["feed", "walk", "play"])
+        pet_select_for_times = st.selectbox("Choose pet", [p.name for p in st.session_state.owner.pets], key="pet_time_select")
+        task_type_time = st.selectbox("Task type", ["feed", "walk", "play"], key="task_type_time_select")
         preferred_time = st.time_input("Preferred time", value=None)
 
         if st.button("Set preferred task time"):
@@ -77,7 +77,7 @@ col1, col2, col3, col4 = st.columns(4)
 with col1:
     task_title = st.text_input("Task title", value="Dog feed")
 with col2:
-    task_type = st.selectbox("Task type", ["feed", "walk", "play"], index=0)
+     task_type = st.selectbox("Task type", ["feed", "walk", "play"], index=0, key="task_type_input")
 with col3:
     duration = st.number_input("Duration (minutes)", min_value=1, max_value=240, value=15)
 with col4:
@@ -100,56 +100,62 @@ st.subheader("Build Schedule")
 
 selected_pet = None
 if st.session_state.owner.pets:
-    selected_pet_name = st.selectbox("Select pet for schedule", [p.name for p in st.session_state.owner.pets])
+    selected_pet_name = st.selectbox("Select pet for schedule", [p.name for p in st.session_state.owner.pets], key="schedule_pet_select")
     selected_pet = next((p for p in st.session_state.owner.pets if p.name == selected_pet_name), None)
 
+
+def display_schedule(schedule):
+    st.markdown("### Daily schedule")
+    chart = DisplayChart(schedule)
+    st.text(chart.display())
+
+    # mark complete action
+    completed_task = st.selectbox(
+        "Select a task to mark complete",
+        [task.title for task in schedule.plan],
+        key="complete_task_select"
+    )
+    if st.button("Mark task complete"):
+        task_to_complete = next((task for task in schedule.plan if task.title == completed_task), None)
+        if task_to_complete:
+            task_to_complete.mark_complete()
+            for slot in schedule.plan_slots:
+                if slot["title"] == task_to_complete.title:
+                    slot["completed"] = True
+            st.success(f"Marked '{task_to_complete.title}' as complete")
+        # Always show updated schedule after marking complete
+        st.text(DisplayChart(schedule).display())
+        st.markdown("### Plan explanation")
+        st.text(schedule.explain_plan())
+        st.markdown("### Schedule table")
+        st.table(schedule.plan_slots)
+        st.stop()
+
+    st.markdown("### Plan explanation")
+    st.text(schedule.explain_plan())
+    st.markdown("### Schedule table")
+    st.table(schedule.plan_slots)
+
 if st.button("Generate schedule"):
-        if not selected_pet:
-            st.error("Please add and select a pet before generating a schedule.")
-        elif not st.session_state.tasks:
-            st.error("Please add tasks before generating a schedule.")
+    if not selected_pet:
+        st.error("Please add and select a pet before generating a schedule.")
+    elif not st.session_state.tasks:
+        st.error("Please add tasks before generating a schedule.")
+    else:
+        schedule = Schedule(owner=st.session_state.owner, pet=selected_pet)
+        for task_data in st.session_state.tasks:
+            try:
+                schedule.add_task(Task(
+                    title=task_data["title"],
+                    duration_minutes=task_data["duration_minutes"],
+                    task_type=task_data["task_type"],
+                    priority=task_data["priority"],
+                ))
+            except Exception as e:
+                st.error(f"Skipping task '{task_data['title']}': {e}")
+        plan = schedule.build_plan(start_hour=8, start_minute=0)
+        if not plan:
+            st.warning("No tasks could be scheduled (time constraints or empty task list).")
         else:
-            schedule = Schedule(owner=st.session_state.owner, pet=selected_pet)
-
-            for task_data in st.session_state.tasks:
-                try:
-                    schedule.add_task(Task(
-                        title=task_data["title"],
-                        duration_minutes=task_data["duration_minutes"],
-                        task_type=task_data["task_type"],
-                        priority=task_data["priority"],
-                    ))
-                except Exception as e:
-                    st.error(f"Skipping task '{task_data['title']}': {e}")
-
-            plan = schedule.build_plan(start_hour=8, start_minute=0)
-            if not plan:
-                st.warning("No tasks could be scheduled (time constraints or empty task list).")
-            else:
-                st.session_state.current_schedule = schedule
-
-                st.markdown("### Daily schedule")
-                chart = DisplayChart(schedule)
-                st.text(chart.display())
-
-                # mark complete action
-                completed_task = st.selectbox(
-                    "Select a task to mark complete",
-                    [task.title for task in schedule.plan],
-                    key="complete_task_select"
-                )
-                if st.button("Mark task complete"):
-                    task_to_complete = next((task for task in schedule.plan if task.title == completed_task), None)
-                    if task_to_complete:
-                        task_to_complete.mark_complete()
-                        for slot in schedule.plan_slots:
-                            if slot["title"] == task_to_complete.title:
-                                slot["completed"] = True
-                        st.success(f"Marked '{task_to_complete.title}' as complete")
-                        st.text(DisplayChart(schedule).display())
-
-                st.markdown("### Plan explanation")
-                st.text(schedule.explain_plan())
-
-                st.markdown("### Schedule table")
-                st.table(schedule.plan_slots)
+            st.session_state.current_schedule = schedule
+            display_schedule(schedule)
