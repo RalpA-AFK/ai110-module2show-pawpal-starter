@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
-from datetime import date
-from typing import List, Dict, Optional
+from datetime import date, timedelta
+from typing import List, Dict, Optional, Set, Tuple
 
 @dataclass
 class Owner:
@@ -127,6 +127,7 @@ class Task:
     priority: str = "medium"
     notes: Optional[str] = None
     completed: bool = False
+    pet_name: Optional[str] = None  # Track which pet this task belongs to
 
     ALLOWED_PRIORITIES = {"low", "medium", "high"}
     ALLOWED_TASK_TYPES = {"feed", "walk", "play"}
@@ -179,7 +180,9 @@ class Task:
     def _determine_task_type(cls, title: str) -> str:
         """Infer type from task title if type not given."""
         lower = title.strip().lower()
-        for keyword in cls.ALLOWED_TASK_TYPES:
+        # Use explicit priority order instead of set to ensure deterministic behavior
+        priority_order = ["feed", "walk", "play"]
+        for keyword in priority_order:
             if keyword in lower:
                 return keyword
         raise ValueError(f"Task title must indicate type: {', '.join(sorted(cls.ALLOWED_TASK_TYPES))}")
@@ -250,6 +253,133 @@ class Constraint(Task):
         return f"Constraint: {self.title} ({self.duration_minutes}m) - {self.reason or 'no reason'}"
 
 @dataclass
+class RecurringTask(Task):
+    """Task that repeats on a schedule."""
+    recurrence_pattern: str = "daily"  # daily, weekly, custom
+    recurrence_days: Set[int] = field(default_factory=lambda: {0, 1, 2, 3, 4, 5, 6})  # 0=Mon, 6=Sun
+    start_date: date = field(default_factory=date.today)
+    end_date: Optional[date] = None
+    due_date: Optional[date] = field(default_factory=date.today)  # When this instance is due
+    last_completed_date: Optional[date] = None  # Track when this was last completed
+
+    ALLOWED_PATTERNS = {"daily", "weekly", "custom"}
+
+    def __post_init__(self) -> None:
+        """Initialize recurring task with validation."""
+        super().__post_init__()
+        if self.recurrence_pattern not in self.ALLOWED_PATTERNS:
+            raise ValueError(f"Recurrence pattern must be one of: {', '.join(self.ALLOWED_PATTERNS)}")
+        if self.end_date and self.end_date < self.start_date:
+            raise ValueError("End date cannot be before start date")
+        # Set due_date to start_date if not provided
+        if self.due_date is None:
+            self.due_date = self.start_date
+
+    def is_active_on_date(self, check_date: date) -> bool:
+        """Check if this recurring task is active on a given date."""
+        if check_date < self.start_date:
+            return False
+        if self.end_date and check_date > self.end_date:
+            return False
+        
+        if self.recurrence_pattern == "daily":
+            return True
+        elif self.recurrence_pattern == "weekly":
+            return check_date.weekday() in self.recurrence_days
+        return False
+
+    def get_occurrences_in_range(self, start: date, end: date) -> List[date]:
+        """Get all dates this task occurs within a date range."""
+        occurrences = []
+        current = max(start, self.start_date)
+        end_check = min(end, self.end_date) if self.end_date else end
+        
+        while current <= end_check:
+            if self.is_active_on_date(current):
+                occurrences.append(current)
+            current += timedelta(days=1)
+        
+        return occurrences
+
+    def get_next_occurrence(self, after: date) -> Optional[date]:
+        """Get the next occurrence date after a given date using timedelta.
+        
+        For daily tasks: next = after + timedelta(days=1)
+        For weekly tasks: find next matching weekday after 'after' date
+        
+        Args:
+            after: Search for next occurrence after this date
+            
+        Returns None if past end_date.
+        """
+        if self.end_date and after >= self.end_date:
+            return None
+        
+        if self.recurrence_pattern == "daily":
+            # Simple: next day is tomorrow from 'after'
+            next_date = after + timedelta(days=1)
+            if self.end_date and next_date > self.end_date:
+                return None
+            return next_date
+        
+        elif self.recurrence_pattern == "weekly":
+            # Find next matching weekday after the 'after' date
+            check_date = after + timedelta(days=1)
+            # Search up to 7 days to find next matching weekday
+            for _ in range(7):
+                if self.end_date and check_date > self.end_date:
+                    return None
+                if check_date.weekday() in self.recurrence_days:
+                    return check_date
+                check_date += timedelta(days=1)
+            return None
+        
+        return None
+
+    def mark_complete(self) -> Optional['RecurringTask']:
+        """Mark this task as completed and return a new instance for next occurrence.
+        
+        Returns a new RecurringTask for the next occurrence, or None if recurrence ended.
+        The original task is marked completed, and a new task is created with:
+        - Same title, duration, priority, etc.
+        - due_date set to the next occurrence
+        - completed=False
+        - last_completed_date set to today
+        
+        Uses the task's due_date (not today) to calculate next occurrence for accuracy.
+        """
+        # Mark this instance as completed
+        self.completed = True
+        self.last_completed_date = date.today()
+        
+        # Get next occurrence date using this task's due_date
+        # This ensures weekly tasks find the next matching weekday from their scheduled date
+        next_date = self.get_next_occurrence(self.due_date)
+        
+        # If no next occurrence, return None (recurrence ended)
+        if next_date is None:
+            return None
+        
+        # Create new instance for next occurrence
+        next_task = RecurringTask(
+            title=self.title,
+            duration_minutes=self.duration_minutes,
+            task_type=self.task_type,
+            priority=self.priority,
+            notes=self.notes,
+            completed=False,
+            pet_name=self.pet_name,
+            recurrence_pattern=self.recurrence_pattern,
+            recurrence_days=self.recurrence_days.copy(),  # Copy the set
+            start_date=self.start_date,
+            end_date=self.end_date,
+            due_date=next_date,
+            last_completed_date=None
+        )
+        
+        return next_task
+
+@dataclass
 class Schedule:
     owner: Owner
     pet: Pet
@@ -317,6 +447,7 @@ class Schedule:
                     "start": self._format_time(start),
                     "end": self._format_time(end),
                     "duration_minutes": task.duration_minutes,
+                    "pet_name": task.pet_name,
                 })
 
                 used += task.duration_minutes
@@ -341,6 +472,143 @@ class Schedule:
         )
         constraints_desc = "\n".join(c.describe() for c in self.constraints) or "No constraints."
         return f"Constraints:\n{constraints_desc}\n\nPlan:\n{plan_desc}"
+
+    def get_tasks_sorted_by_time(self) -> List[Dict[str, str]]:
+        """Return plan slots sorted by start time using lambda key function.
+        
+        The lambda converts HH:MM format times to minutes for numeric comparison:
+        lambda slot: self._time_to_minutes(slot['start'])
+        
+        This approach handles 12-hour format (7:30 AM, 2:15 PM, etc.) by:
+        1. Parsing the time string into hours and minutes
+        2. Converting to total minutes (hour*60 + minute)
+        3. Using numeric values for sorting (much simpler than string comparison)
+        """
+        # Already sorted by build_plan, but re-sort to ensure consistency
+        return sorted(self.plan_slots, key=lambda slot: self._time_to_minutes(slot['start']))
+
+    @staticmethod
+    def _time_to_minutes(time_str: str) -> int:
+        """Convert time string like '7:30 AM' to minutes since midnight."""
+        from datetime import datetime
+        dt = datetime.strptime(time_str, "%I:%M %p")
+        return dt.hour * 60 + dt.minute
+
+    def filter_tasks_by_pet(self, pet_name: str) -> List[Task]:
+        """Filter and return all tasks for a specific pet.
+        
+        Uses list comprehension for efficient filtering:
+        [t for t in self.tasks if t.pet_name == pet_name or t.pet_name is None]
+        
+        Design: Tasks with pet_name=None are included for any pet (universal tasks).
+        """
+        return [t for t in self.tasks if t.pet_name == pet_name or t.pet_name is None]
+
+    def filter_tasks_by_status(self, completed: bool = True) -> List[Task]:
+        """Filter tasks by completion status.
+        
+        Args:
+            completed (bool): If True, return completed tasks; if False, return incomplete tasks
+            
+        Returns:
+            List of tasks matching the completion status
+        """
+        return [t for t in self.tasks if t.completed == completed]
+
+    def filter_plan_by_status(self, completed: bool = True) -> List[Dict[str, str]]:
+        """Return scheduled slots filtered by completion status."""
+        for slot in self.plan_slots:
+            if "completed" not in slot:
+                slot["completed"] = False
+        return [s for s in self.plan_slots if s.get("completed", False) == completed]
+
+    def detect_conflicts(self) -> List[Dict[str, object]]:
+        """Detect overlapping tasks in the current plan. Returns list of conflict dicts."""
+        conflicts = []
+        
+        for i, slot1 in enumerate(self.plan_slots):
+            for slot2 in self.plan_slots[i+1:]:
+                # Check if slots overlap
+                start1 = self._time_to_minutes(slot1['start'])
+                end1 = self._time_to_minutes(slot1['end'])
+                start2 = self._time_to_minutes(slot2['start'])
+                end2 = self._time_to_minutes(slot2['end'])
+
+                if start1 < end2 and start2 < end1:
+                    conflict_type = "different pets"
+                    pet1, pet2 = slot1.get('pet_name'), slot2.get('pet_name')
+                    if pet1 and pet2 and pet1 == pet2:
+                        conflict_type = "same pet"
+
+                    conflicts.append({
+                        "task1": slot1['title'],
+                        "task2": slot2['title'],
+                        "pet1": pet1,
+                        "pet2": pet2,
+                        "time1": f"{slot1['start']} - {slot1['end']}",
+                        "time2": f"{slot2['start']} - {slot2['end']}",
+                        "conflict_type": conflict_type,
+                        "overlap_description": f"'{slot1['title']}' and '{slot2['title']}' overlap in schedule"
+                    })
+        
+        return conflicts
+
+    def get_conflict_warnings(self) -> List[str]:
+        """Return lightweight conflict warnings (no exceptions)."""
+        warnings = []
+        for c in self.detect_conflicts():
+            if c['conflict_type'] == 'same pet':
+                warnings.append(
+                    f"WARNING: Same pet '{c['pet1']}' has overlapping tasks '{c['task1']}' "
+                    f"and '{c['task2']}' at {c['time1']} / {c['time2']}"
+                )
+            else:
+                warnings.append(
+                    f"WARNING: Tasks for different pets ('{c['pet1']}'/'{c['pet2']}') overlap: "
+                    f"'{c['task1']}' and '{c['task2']}' at {c['time1']} / {c['time2']}"
+                )
+        return warnings
+
+    def get_daily_task_summary(self) -> Dict[str, object]:
+        """Return a summary of the day's schedule with conflicts and status."""
+        summary = {
+            "date": str(self.date),
+            "total_tasks": len(self.plan),
+            "completed_tasks": sum(1 for t in self.plan if t.completed),
+            "remaining_tasks": sum(1 for t in self.plan if not t.completed),
+            "total_duration_minutes": sum(t.duration_minutes for t in self.plan),
+            "conflicts_detected": self.detect_conflicts(),
+            "available_time_minutes": self.available_minutes()
+        }
+        return summary
+
+    def complete_task(self, task: Task) -> Optional[Task]:
+        """Complete a task and auto-create next occurrence if it's recurring.
+        
+        For RecurringTask: marks complete, creates and adds next occurrence to schedule.
+        For regular Task: marks complete.
+        
+        Args:
+            task: The task to complete
+            
+        Returns:
+            The next RecurringTask instance if created, otherwise None
+        """
+        if isinstance(task, RecurringTask):
+            # Mark complete and get next occurrence
+            next_task = task.mark_complete()
+            
+            if next_task:
+                # Auto-add next occurrence to the schedule
+                self.add_task(next_task)
+                return next_task
+            else:
+                # Recurrence has ended, just mark complete (already done in mark_complete)
+                return None
+        else:
+            # Regular task, just mark complete
+            task.mark_complete()
+            return None
 
 class DisplayChart:
     """Render schedule as human-readable chart text."""

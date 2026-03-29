@@ -41,3 +41,30 @@ pip install -r requirements.txt
 5. Add tests to verify key behaviors.
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
+
+## Smarter Scheduling Features
+
+This implementation includes advanced scheduling capabilities:
+
+### Task Sorting & Filtering
+- **Priority-based sorting**: Tasks are sorted by effective priority score (combining task type priority and duration priority)
+- **Pet-specific filtering**: Filter tasks by specific pet or include universal tasks
+- **Status filtering**: Separate completed from incomplete tasks
+
+### Recurring Tasks
+- **Daily recurrence**: Tasks that repeat every day
+- **Weekly recurrence**: Tasks that repeat on specific weekdays (e.g., Monday, Wednesday, Friday)
+- **Auto-creation**: When a recurring task is completed, the next occurrence is automatically created and added to the schedule
+- **End date support**: Recurring tasks can have an end date to stop recurrence
+
+### Conflict Detection
+- **Overlap detection**: Identifies when scheduled tasks overlap in time
+- **Same-pet conflicts**: Warns when the same pet has overlapping tasks
+- **Different-pet conflicts**: Notes when different pets have overlapping tasks
+- **Conflict warnings**: Provides human-readable warnings about scheduling conflicts
+
+### Schedule Management
+- **Time-based sorting**: Tasks are displayed in chronological order
+- **Duration tracking**: Shows task durations and total scheduled time
+- **Constraint handling**: Respects time constraints when building schedules
+- **Daily summaries**: Provides overview of daily tasks, completion status, and conflicts

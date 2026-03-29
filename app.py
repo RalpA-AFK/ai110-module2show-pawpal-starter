@@ -56,8 +56,9 @@ with st.expander("Pet preferred task times", expanded=False):
 
         if st.button("Set preferred task time"):
             if pet_select_for_times and preferred_time:
-                st.session_state.owner.set_pet_task_time(pet_select_for_times, task_type_time, preferred_time.strftime("%H:%M"))
-                st.success(f"Set {task_type_time} for {pet_select_for_times} at {preferred_time.strftime('%H:%M')}")
+                time_12h = preferred_time.strftime("%I:%M %p").lstrip("0")
+                st.session_state.owner.set_pet_task_time(pet_select_for_times, task_type_time, time_12h)
+                st.success(f"Set {task_type_time} for {pet_select_for_times} at {time_12h}")
 
         pet_time_rows = []
         for pet in st.session_state.owner.pets:
