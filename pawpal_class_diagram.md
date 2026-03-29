@@ -27,6 +27,12 @@ classDiagram
         +set_duration(minutes)
     }
 
+    class Constraint {
+        +str reason
+        +str impact_level
+        +describe() string
+    }
+
     class Schedule {
         +Owner owner
         +Pet pet
@@ -57,6 +63,7 @@ classDiagram
     Schedule "1" -- "1" Owner : for
     Schedule "1" -- "1" Pet : for
     Schedule "1" -- "*" Task : includes
+    Schedule "1" -- "*" Constraint : contains
     DisplayChart "1" -- "1" Schedule : formats
     tests_pawpal ..> Task : verifies
     tests_pawpal ..> Schedule : verifies
