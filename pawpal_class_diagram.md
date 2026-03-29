@@ -23,11 +23,8 @@ classDiagram
     class Task {
         +str title
         +int duration_minutes
-        +str priority  <<low|medium|high>>
         +str notes
         +set_duration(minutes)
-        +set_priority(level)
-        +is_high_priority() bool
     }
 
     class Schedule {
